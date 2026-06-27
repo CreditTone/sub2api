@@ -366,6 +366,122 @@ func (h *UsageHandler) DashboardModels(c *gin.Context) {
 	})
 }
 
+func (h *UsageHandler) resolvePublicDashboardAPIKey(c *gin.Context) (*service.APIKey, bool) {
+	apiKey, err := h.usageService.ResolvePublicDashboardAPIKeyBySuffix(c.Request.Context(), c.Param("suffix"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return nil, false
+	}
+	return apiKey, true
+}
+
+// PublicDashboardStats handles getting anonymous dashboard statistics by API key suffix.
+// GET /api/v1/public/dashboard/:suffix/stats
+func (h *UsageHandler) PublicDashboardStats(c *gin.Context) {
+	apiKey, ok := h.resolvePublicDashboardAPIKey(c)
+	if !ok {
+		return
+	}
+
+	stats, err := h.usageService.GetAPIKeyDashboardStats(c.Request.Context(), apiKey.ID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"api_key_suffix": c.Param("suffix"),
+		"stats":          stats,
+	})
+}
+
+// PublicDashboardTrend handles getting anonymous per-user usage trend by API key suffix.
+// GET /api/v1/public/dashboard/:suffix/trend
+func (h *UsageHandler) PublicDashboardTrend(c *gin.Context) {
+	apiKey, ok := h.resolvePublicDashboardAPIKey(c)
+	if !ok {
+		return
+	}
+
+	startTime, endTime := parseUserTimeRange(c)
+	granularity := c.DefaultQuery("granularity", "day")
+
+	trend, err := h.usageService.GetAPIKeyUsageTrendByID(c.Request.Context(), apiKey.ID, startTime, endTime, granularity)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"trend":          trend,
+		"api_key_suffix": c.Param("suffix"),
+		"start_date":     startTime.Format("2006-01-02"),
+		"end_date":       endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+		"granularity":    granularity,
+	})
+}
+
+// PublicDashboardModels handles getting anonymous per-user model usage distribution by API key suffix.
+// GET /api/v1/public/dashboard/:suffix/models
+func (h *UsageHandler) PublicDashboardModels(c *gin.Context) {
+	apiKey, ok := h.resolvePublicDashboardAPIKey(c)
+	if !ok {
+		return
+	}
+
+	startTime, endTime := parseUserTimeRange(c)
+
+	stats, err := h.usageService.GetAPIKeyModelStats(c.Request.Context(), apiKey.ID, startTime, endTime)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"models":         stats,
+		"api_key_suffix": c.Param("suffix"),
+		"start_date":     startTime.Format("2006-01-02"),
+		"end_date":       endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+	})
+}
+
+// PublicDashboardRecentUsage handles getting recent usage logs by API key suffix.
+// GET /api/v1/public/dashboard/:suffix/recent
+func (h *UsageHandler) PublicDashboardRecentUsage(c *gin.Context) {
+	apiKey, ok := h.resolvePublicDashboardAPIKey(c)
+	if !ok {
+		return
+	}
+
+	pageSize := 5
+	if pageSizeStr := c.Query("page_size"); pageSizeStr != "" {
+		if parsed, err := strconv.Atoi(pageSizeStr); err == nil && parsed > 0 && parsed <= 20 {
+			pageSize = parsed
+		}
+	}
+
+	records, _, err := h.usageService.ListByAPIKey(c.Request.Context(), apiKey.ID, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  pageSize,
+		SortBy:    "created_at",
+		SortOrder: "desc",
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	out := make([]dto.UsageLog, 0, len(records))
+	for i := range records {
+		out = append(out, *dto.UsageLogFromService(&records[i]))
+	}
+
+	response.Success(c, gin.H{
+		"items":          out,
+		"api_key_suffix": c.Param("suffix"),
+	})
+}
+
 // BatchAPIKeysUsageRequest represents the request for batch API keys usage
 type BatchAPIKeysUsageRequest struct {
 	APIKeyIDs []int64 `json:"api_key_ids" binding:"required"`

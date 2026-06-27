@@ -20,16 +20,18 @@ FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /app/frontend
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+ENV HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache \
+    NPM_CONFIG_CACHE=/tmp/.npm
 
 # Install dependencies first (better caching)
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY frontend/package.json ./
+RUN npm install --ignore-scripts && \
+    npm rebuild esbuild vue-demi
 
 # Copy frontend source and build
 COPY frontend/ ./
-RUN pnpm run build
+RUN npx vite build
 
 # -----------------------------------------------------------------------------
 # Stage 2: Backend Builder

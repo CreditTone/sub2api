@@ -143,6 +143,15 @@ const routes: RouteRecordRaw[] = [
       title: 'Key Usage',
     }
   },
+  {
+    path: '/dashboard/:suffix',
+    name: 'PublicDashboard',
+    component: () => import('@/views/public/PublicDashboardView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Usage Dashboard'
+    }
+  },
 
   // ==================== User Routes ====================
   {

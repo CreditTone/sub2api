@@ -4,16 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
 var (
-	ErrUsageLogNotFound = infraerrors.NotFound("USAGE_LOG_NOT_FOUND", "usage log not found")
+	ErrUsageLogNotFound             = infraerrors.NotFound("USAGE_LOG_NOT_FOUND", "usage log not found")
+	ErrPublicDashboardSuffixInvalid = infraerrors.BadRequest("PUBLIC_DASHBOARD_SUFFIX_INVALID", "api key suffix must be 6 characters")
+	ErrPublicDashboardKeyNotFound   = infraerrors.NotFound("PUBLIC_DASHBOARD_KEY_NOT_FOUND", "api key not found")
+	ErrPublicDashboardKeyAmbiguous  = infraerrors.Conflict("PUBLIC_DASHBOARD_KEY_AMBIGUOUS", "api key suffix is ambiguous")
 )
 
 // CreateUsageLogRequest 创建使用日志请求
@@ -306,6 +311,15 @@ func (s *UsageService) GetUserUsageTrendByUserID(ctx context.Context, userID int
 	return trend, nil
 }
 
+// GetAPIKeyUsageTrendByID returns per-api-key usage trend.
+func (s *UsageService) GetAPIKeyUsageTrendByID(ctx context.Context, apiKeyID int64, startTime, endTime time.Time, granularity string) ([]usagestats.TrendDataPoint, error) {
+	trend, err := s.usageRepo.GetUsageTrendWithFilters(ctx, startTime, endTime, granularity, 0, apiKeyID, 0, 0, "", nil, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("get api key usage trend: %w", err)
+	}
+	return trend, nil
+}
+
 // GetUserModelStats returns per-user model usage stats.
 func (s *UsageService) GetUserModelStats(ctx context.Context, userID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
 	stats, err := s.usageRepo.GetUserModelStats(ctx, userID, startTime, endTime)
@@ -322,6 +336,47 @@ func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, 
 		return nil, fmt.Errorf("get api key model stats: %w", err)
 	}
 	return stats, nil
+}
+
+// ResolvePublicDashboardAPIKeyBySuffix finds a single active API key by its last 6 characters.
+// If multiple keys share the same suffix, it returns an ambiguity error to avoid leaking another user's data.
+func (s *UsageService) ResolvePublicDashboardAPIKeyBySuffix(ctx context.Context, suffix string) (*APIKey, error) {
+	normalized := strings.TrimSpace(suffix)
+	if len(normalized) != 6 {
+		return nil, ErrPublicDashboardSuffixInvalid
+	}
+
+	keys, err := s.entClient.APIKey.Query().
+		Where(
+			apikey.DeletedAtIsNil(),
+			apikey.StatusEQ("active"),
+			apikey.KeyHasSuffix(normalized),
+		).
+		Order(apikey.ByLastUsedAt(), apikey.ByCreatedAt()).
+		Limit(2).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query api key by suffix: %w", err)
+	}
+	if len(keys) == 0 {
+		return nil, ErrPublicDashboardKeyNotFound
+	}
+	if len(keys) > 1 {
+		return nil, ErrPublicDashboardKeyAmbiguous
+	}
+
+	key := keys[0]
+	return &APIKey{
+		ID:         key.ID,
+		UserID:     key.UserID,
+		Key:        key.Key,
+		Name:       key.Name,
+		GroupID:    key.GroupID,
+		Status:     key.Status,
+		LastUsedAt: key.LastUsedAt,
+		CreatedAt:  key.CreatedAt,
+		UpdatedAt:  key.UpdatedAt,
+	}, nil
 }
 
 // GetBatchAPIKeyUsageStats returns today/total actual_cost for given api keys.

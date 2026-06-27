@@ -492,6 +492,8 @@ export interface Group {
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
   monthly_limit_usd: number | null
+  custom_limit_usd?: number | null
+  custom_window_hours?: number | null
   // 图片生成计费配置（仅 antigravity 平台使用）
   image_price_1k: number | null
   image_price_2k: number | null
@@ -602,6 +604,8 @@ export interface CreateGroupRequest {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  custom_limit_usd?: number | null
+  custom_window_hours?: number | null
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
@@ -627,6 +631,8 @@ export interface UpdateGroupRequest {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  custom_limit_usd?: number | null
+  custom_window_hours?: number | null
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
@@ -1414,9 +1420,11 @@ export interface UserSubscription {
   daily_usage_usd: number
   weekly_usage_usd: number
   monthly_usage_usd: number
+  custom_usage_usd?: number
   daily_window_start: string | null
   weekly_window_start: string | null
   monthly_window_start: string | null
+  custom_window_start?: string | null
   created_at: string
   updated_at: string
   expires_at: string | null
@@ -1439,6 +1447,12 @@ export interface SubscriptionProgress {
     reset_in_seconds: number | null
   } | null
   monthly: {
+    used: number
+    limit: number | null
+    percentage: number
+    reset_in_seconds: number | null
+  } | null
+  custom: {
     used: number
     limit: number | null
     percentage: number

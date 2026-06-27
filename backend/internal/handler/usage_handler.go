@@ -392,7 +392,67 @@ func (h *UsageHandler) PublicDashboardStats(c *gin.Context) {
 	response.Success(c, gin.H{
 		"api_key_suffix": c.Param("suffix"),
 		"stats":          stats,
+		"rate_limits":    h.buildPublicDashboardRateLimits(c, apiKey.ID),
 	})
+}
+
+func (h *UsageHandler) buildPublicDashboardRateLimits(c *gin.Context, apiKeyID int64) []gin.H {
+	if h.apiKeyService == nil {
+		return nil
+	}
+
+	apiKey, err := h.apiKeyService.GetByID(c.Request.Context(), apiKeyID)
+	if err != nil || apiKey == nil {
+		return nil
+	}
+
+	rateLimitData, err := h.apiKeyService.GetRateLimitData(c.Request.Context(), apiKeyID)
+	if err != nil || rateLimitData == nil {
+		return nil
+	}
+
+	var rateLimits []gin.H
+	if limit := apiKey.EffectiveRateLimit5h(); limit > 0 {
+		used := rateLimitData.EffectiveUsage5h()
+		entry := gin.H{
+			"window":    "5h",
+			"limit":     limit,
+			"used":      used,
+			"remaining": max(0, limit-used),
+		}
+		if rateLimitData.Window5hStart != nil && !service.IsWindowExpired(rateLimitData.Window5hStart, service.RateLimitWindow5h) {
+			entry["reset_at"] = rateLimitData.Window5hStart.Add(service.RateLimitWindow5h)
+		}
+		rateLimits = append(rateLimits, entry)
+	}
+	if limit := apiKey.EffectiveRateLimit1d(); limit > 0 {
+		used := rateLimitData.EffectiveUsage1d()
+		entry := gin.H{
+			"window":    "1d",
+			"limit":     limit,
+			"used":      used,
+			"remaining": max(0, limit-used),
+		}
+		if rateLimitData.Window1dStart != nil && !service.IsWindowExpired(rateLimitData.Window1dStart, service.RateLimitWindow1d) {
+			entry["reset_at"] = rateLimitData.Window1dStart.Add(service.RateLimitWindow1d)
+		}
+		rateLimits = append(rateLimits, entry)
+	}
+	if limit := apiKey.EffectiveRateLimit7d(); limit > 0 {
+		used := rateLimitData.EffectiveUsage7d()
+		entry := gin.H{
+			"window":    "7d",
+			"limit":     limit,
+			"used":      used,
+			"remaining": max(0, limit-used),
+		}
+		if rateLimitData.Window7dStart != nil && !service.IsWindowExpired(rateLimitData.Window7dStart, service.RateLimitWindow7d) {
+			entry["reset_at"] = rateLimitData.Window7dStart.Add(service.RateLimitWindow7d)
+		}
+		rateLimits = append(rateLimits, entry)
+	}
+
+	return rateLimits
 }
 
 // PublicDashboardTrend handles getting anonymous per-user usage trend by API key suffix.

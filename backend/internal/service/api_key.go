@@ -71,6 +71,79 @@ func (k *APIKey) HasRateLimits() bool {
 	return k.RateLimit5h > 0 || k.RateLimit1d > 0 || k.RateLimit7d > 0
 }
 
+// UsesPerKeySubscriptionLimits returns true when an admin-owned API key should
+// consume subscription group windows independently instead of sharing the
+// user's user_subscriptions record.
+func (k *APIKey) UsesPerKeySubscriptionLimits() bool {
+	return k != nil &&
+		k.User != nil &&
+		k.User.IsAdmin() &&
+		k.Group != nil &&
+		k.Group.IsSubscriptionType()
+}
+
+// EffectiveRateLimit5h returns the enforced 5h cap. For admin-owned
+// subscription keys, the group's custom 5h window is mapped onto the key's
+// own 5h bucket when the key itself has no explicit override.
+func (k *APIKey) EffectiveRateLimit5h() float64 {
+	if k == nil {
+		return 0
+	}
+	if k.RateLimit5h > 0 {
+		return k.RateLimit5h
+	}
+	if k.UsesPerKeySubscriptionLimits() &&
+		k.Group.CustomLimitUSD != nil &&
+		k.Group.CustomWindowHours != nil &&
+		*k.Group.CustomWindowHours == 5 &&
+		*k.Group.CustomLimitUSD > 0 {
+		return *k.Group.CustomLimitUSD
+	}
+	return 0
+}
+
+// EffectiveRateLimit1d returns the enforced 1d cap. For admin-owned
+// subscription keys, the group's daily limit is mapped onto the key bucket
+// when no explicit key-level override exists.
+func (k *APIKey) EffectiveRateLimit1d() float64 {
+	if k == nil {
+		return 0
+	}
+	if k.RateLimit1d > 0 {
+		return k.RateLimit1d
+	}
+	if k.UsesPerKeySubscriptionLimits() &&
+		k.Group.DailyLimitUSD != nil &&
+		*k.Group.DailyLimitUSD > 0 {
+		return *k.Group.DailyLimitUSD
+	}
+	return 0
+}
+
+// EffectiveRateLimit7d returns the enforced 7d cap. For admin-owned
+// subscription keys, the group's weekly limit is mapped onto the key bucket
+// when no explicit key-level override exists.
+func (k *APIKey) EffectiveRateLimit7d() float64 {
+	if k == nil {
+		return 0
+	}
+	if k.RateLimit7d > 0 {
+		return k.RateLimit7d
+	}
+	if k.UsesPerKeySubscriptionLimits() &&
+		k.Group.WeeklyLimitUSD != nil &&
+		*k.Group.WeeklyLimitUSD > 0 {
+		return *k.Group.WeeklyLimitUSD
+	}
+	return 0
+}
+
+// HasEffectiveRateLimits returns true if the key has explicit rate limits or
+// derives them from an admin-owned subscription group.
+func (k *APIKey) HasEffectiveRateLimits() bool {
+	return k.EffectiveRateLimit5h() > 0 || k.EffectiveRateLimit1d() > 0 || k.EffectiveRateLimit7d() > 0
+}
+
 // IsExpired checks if the API key has expired
 func (k *APIKey) IsExpired() bool {
 	if k.ExpiresAt == nil {

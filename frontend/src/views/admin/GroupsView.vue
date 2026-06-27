@@ -138,11 +138,21 @@
               >
                 <template
                   v-if="
+                    row.custom_limit_usd ||
                     row.daily_limit_usd ||
                     row.weekly_limit_usd ||
                     row.monthly_limit_usd
                   "
                 >
+                  <span v-if="row.custom_limit_usd"
+                    >${{ row.custom_limit_usd }}/{{
+                      row.custom_window_hours === 5
+                        ? t("admin.groups.limit5Hour")
+                        : t("admin.groups.limitHourWindow", {
+                            hours: row.custom_window_hours || "-",
+                          })
+                    }}</span
+                  >
                   <span v-if="row.daily_limit_usd"
                     >${{ row.daily_limit_usd }}/{{
                       t("admin.groups.limitDay")
@@ -150,7 +160,15 @@
                   >
                   <span
                     v-if="
-                      row.daily_limit_usd &&
+                      row.custom_limit_usd && row.daily_limit_usd
+                    "
+                    class="mx-1 text-gray-300 dark:text-gray-600"
+                    >·</span
+                  >
+                  <span
+                    v-if="
+                      !row.daily_limit_usd &&
+                      row.custom_limit_usd &&
                       (row.weekly_limit_usd || row.monthly_limit_usd)
                     "
                     class="mx-1 text-gray-300 dark:text-gray-600"
@@ -160,6 +178,14 @@
                     >${{ row.weekly_limit_usd }}/{{
                       t("admin.groups.limitWeek")
                     }}</span
+                  >
+                  <span
+                    v-if="
+                      row.daily_limit_usd &&
+                      (row.weekly_limit_usd || row.monthly_limit_usd)
+                    "
+                    class="mx-1 text-gray-300 dark:text-gray-600"
+                    >·</span
                   >
                   <span
                     v-if="row.weekly_limit_usd && row.monthly_limit_usd"
@@ -607,6 +633,24 @@
             v-if="createForm.subscription_type === 'subscription'"
             class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800"
           >
+            <div>
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.subscription.limit5Hour")
+                }}</label>
+                <input
+                  v-model.number="createForm.custom_limit_usd"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="input"
+                  :placeholder="t('admin.groups.subscription.noLimit')"
+                />
+                <p class="input-hint">
+                  {{ t("admin.groups.subscription.limit5HourHint") }}
+                </p>
+              </div>
+            </div>
             <div>
               <label class="input-label">{{
                 t("admin.groups.subscription.dailyLimit")
@@ -1742,6 +1786,34 @@
             v-if="editForm.subscription_type === 'subscription'"
             class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800"
           >
+            <div>
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.subscription.limit5Hour")
+                }}</label>
+                <input
+                  v-model.number="editForm.custom_limit_usd"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="input"
+                  :placeholder="t('admin.groups.subscription.noLimit')"
+                />
+                <p class="input-hint">
+                  {{ t("admin.groups.subscription.limit5HourHint") }}
+                </p>
+                <p
+                  v-if="editForm.custom_window_hours && editForm.custom_window_hours !== 5"
+                  class="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                >
+                  {{
+                    t("admin.groups.subscription.limit5HourMigrateHint", {
+                      hours: editForm.custom_window_hours,
+                    })
+                  }}
+                </p>
+              </div>
+            </div>
             <div>
               <label class="input-label">{{
                 t("admin.groups.subscription.dailyLimit")
@@ -2998,6 +3070,7 @@ const rpmOverridesGroup = ref<AdminGroup | null>(null);
 const sortableGroups = ref<AdminGroup[]>([]);
 const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
+const FIXED_SUBSCRIPTION_WINDOW_HOURS = 5;
 
 const createForm = reactive({
   name: "",
@@ -3009,6 +3082,8 @@ const createForm = reactive({
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
+  custom_limit_usd: null as number | null,
+  custom_window_hours: null as number | null,
   // 图片生成计费配置（仅 antigravity 平台使用）
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
@@ -3291,6 +3366,8 @@ const editForm = reactive({
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
+  custom_limit_usd: null as number | null,
+  custom_window_hours: null as number | null,
   // 图片生成计费配置（仅 antigravity 平台使用）
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
@@ -3479,6 +3556,8 @@ const closeCreateModal = () => {
   createForm.daily_limit_usd = null;
   createForm.weekly_limit_usd = null;
   createForm.monthly_limit_usd = null;
+  createForm.custom_limit_usd = null;
+  createForm.custom_window_hours = null;
   createForm.image_price_1k = null;
   createForm.image_price_2k = null;
   createForm.image_price_4k = null;
@@ -3532,6 +3611,14 @@ const handleCreateGroup = async () => {
       monthly_limit_usd: normalizeOptionalLimit(
         createForm.monthly_limit_usd as number | string | null,
       ),
+      custom_limit_usd: normalizeOptionalLimit(
+        createForm.custom_limit_usd as number | string | null,
+      ),
+      custom_window_hours: normalizeOptionalLimit(
+        createForm.custom_limit_usd as number | string | null,
+      )
+        ? FIXED_SUBSCRIPTION_WINDOW_HOURS
+        : null,
       model_routing: convertRoutingRulesToApiFormat(
         createModelRoutingRules.value,
       ),
@@ -3551,6 +3638,8 @@ const handleCreateGroup = async () => {
     requestData.daily_limit_usd = emptyToNull(requestData.daily_limit_usd);
     requestData.weekly_limit_usd = emptyToNull(requestData.weekly_limit_usd);
     requestData.monthly_limit_usd = emptyToNull(requestData.monthly_limit_usd);
+    requestData.custom_limit_usd = emptyToNull(requestData.custom_limit_usd);
+    requestData.custom_window_hours = emptyToNull(requestData.custom_window_hours);
     await adminAPI.groups.create(requestData);
     appStore.showSuccess(t("admin.groups.groupCreated"));
     closeCreateModal();
@@ -3582,6 +3671,8 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.daily_limit_usd = group.daily_limit_usd;
   editForm.weekly_limit_usd = group.weekly_limit_usd;
   editForm.monthly_limit_usd = group.monthly_limit_usd;
+  editForm.custom_limit_usd = group.custom_limit_usd ?? null;
+  editForm.custom_window_hours = group.custom_window_hours ?? null;
   editForm.image_price_1k = group.image_price_1k;
   editForm.image_price_2k = group.image_price_2k;
   editForm.image_price_4k = group.image_price_4k;
@@ -3627,6 +3718,8 @@ const closeEditModal = () => {
   editingGroup.value = null;
   editModelRoutingRules.value = [];
   editForm.copy_accounts_from_group_ids = [];
+  editForm.custom_limit_usd = null;
+  editForm.custom_window_hours = null;
   resetMessagesDispatchFormState(editForm);
 };
 
@@ -3651,6 +3744,14 @@ const handleUpdateGroup = async () => {
       monthly_limit_usd: normalizeOptionalLimit(
         editForm.monthly_limit_usd as number | string | null,
       ),
+      custom_limit_usd: normalizeOptionalLimit(
+        editForm.custom_limit_usd as number | string | null,
+      ),
+      custom_window_hours: normalizeOptionalLimit(
+        editForm.custom_limit_usd as number | string | null,
+      )
+        ? FIXED_SUBSCRIPTION_WINDOW_HOURS
+        : null,
       fallback_group_id:
         editForm.fallback_group_id === null ? 0 : editForm.fallback_group_id,
       fallback_group_id_on_invalid_request:
@@ -3676,6 +3777,8 @@ const handleUpdateGroup = async () => {
     payload.daily_limit_usd = emptyToNull(payload.daily_limit_usd);
     payload.weekly_limit_usd = emptyToNull(payload.weekly_limit_usd);
     payload.monthly_limit_usd = emptyToNull(payload.monthly_limit_usd);
+    payload.custom_limit_usd = emptyToNull(payload.custom_limit_usd);
+    payload.custom_window_hours = emptyToNull(payload.custom_window_hours);
     await adminAPI.groups.update(editingGroup.value.id, payload);
     appStore.showSuccess(t("admin.groups.groupUpdated"));
     closeEditModal();

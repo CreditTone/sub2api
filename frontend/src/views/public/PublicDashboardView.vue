@@ -50,6 +50,48 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">今日 ${{ (stats.today_actual_cost || 0).toFixed(4) }}</p>
             </div>
           </div>
+          <div v-if="rateLimits.length" class="grid gap-4 md:grid-cols-3">
+            <div
+              v-for="item in rateLimits"
+              :key="item.window"
+              class="card p-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ rateLimitLabel(item.window) }}</p>
+                  <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">${{ item.remaining.toFixed(2) }}</p>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    已用 ${{ item.used.toFixed(2) }} / 限额 ${{ item.limit.toFixed(2) }}
+                  </p>
+                </div>
+                <span
+                  :class="[
+                    'rounded-full px-2 py-1 text-xs font-medium',
+                    item.remaining <= 0
+                      ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+                      : item.remaining <= item.limit * 0.2
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  ]"
+                >
+                  {{ usagePercent(item) }}
+                </span>
+              </div>
+              <div class="mt-4 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="progressClass(item)"
+                  :style="{ width: `${usagePercentNumber(item)}%` }"
+                />
+              </div>
+              <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                恢复倒计时：
+                <span class="font-medium text-gray-700 dark:text-gray-300">
+                  {{ formatResetTime(item.reset_at) || '等待首次消耗后开始' }}
+                </span>
+              </p>
+            </div>
+          </div>
           <UserDashboardCharts
             v-model:startDate="startDate"
             v-model:endDate="endDate"
@@ -104,11 +146,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserDashboardCharts from '@/components/user/dashboard/UserDashboardCharts.vue'
 import { publicDashboardAPI } from '@/api/publicDashboard'
+import type { PublicDashboardRateLimit } from '@/api/publicDashboard'
 import type { UserDashboardStats as UserStatsType } from '@/api/usage'
 import type { ModelStat, TrendDataPoint, UsageLog } from '@/types'
 import { formatDateTime } from '@/utils/format'
@@ -117,6 +160,7 @@ const route = useRoute()
 const suffix = computed(() => String(route.params.suffix || ''))
 
 const stats = ref<UserStatsType | null>(null)
+const rateLimits = ref<PublicDashboardRateLimit[]>([])
 const trendData = ref<TrendDataPoint[]>([])
 const modelStats = ref<ModelStat[]>([])
 const recentUsage = ref<UsageLog[]>([])
@@ -124,12 +168,47 @@ const loading = ref(false)
 const loadingCharts = ref(false)
 const loadingRecent = ref(false)
 const error = ref('')
+const now = ref(new Date())
+let resetTimer: ReturnType<typeof setInterval> | null = null
 
 const formatLD = (d: Date) => d.toISOString().split('T')[0]
 const formatTokens = (value: number) => {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
   return String(value)
+}
+const rateLimitLabel = (window: PublicDashboardRateLimit['window']) => {
+  switch (window) {
+    case '5h':
+      return '5 小时额度'
+    case '1d':
+      return '每日额度'
+    case '7d':
+      return '每周额度'
+    default:
+      return window
+  }
+}
+const usagePercentNumber = (item: PublicDashboardRateLimit) => {
+  if (item.limit <= 0) return 0
+  return Math.max(0, Math.min(100, (item.used / item.limit) * 100))
+}
+const usagePercent = (item: PublicDashboardRateLimit) => `${usagePercentNumber(item).toFixed(0)}%`
+const progressClass = (item: PublicDashboardRateLimit) => {
+  if (item.remaining <= 0) return 'bg-rose-500'
+  if (item.remaining <= item.limit * 0.2) return 'bg-amber-500'
+  return 'bg-emerald-500'
+}
+const formatResetTime = (resetAt?: string | null) => {
+  if (!resetAt) return ''
+  const diff = new Date(resetAt).getTime() - now.value.getTime()
+  if (diff <= 0) return '已恢复'
+  const days = Math.floor(diff / 86400000)
+  const hours = Math.floor((diff % 86400000) / 3600000)
+  const mins = Math.floor((diff % 3600000) / 60000)
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${mins}m`
+  return `${Math.max(1, mins)}m`
 }
 const startDate = ref(formatLD(new Date(Date.now() - 6 * 86400000)))
 const endDate = ref(formatLD(new Date()))
@@ -141,6 +220,7 @@ const loadStats = async () => {
   try {
     const res = await publicDashboardAPI.getPublicDashboardStats(suffix.value)
     stats.value = res.stats
+    rateLimits.value = res.rate_limits || []
   } catch (err: any) {
     error.value = err?.message || '请求失败'
   } finally {
@@ -198,5 +278,19 @@ watch(
 
 onMounted(() => {
   refreshAll()
+  resetTimer = setInterval(() => {
+    now.value = new Date()
+  }, 60000)
+})
+
+watch(
+  () => suffix.value,
+  () => {
+    rateLimits.value = []
+  }
+)
+
+onUnmounted(() => {
+  if (resetTimer) clearInterval(resetTimer)
 })
 </script>

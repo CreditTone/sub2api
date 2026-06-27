@@ -35,6 +35,7 @@ var (
 	ErrDailyLimitExceeded         = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
 	ErrWeeklyLimitExceeded        = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
 	ErrMonthlyLimitExceeded       = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
+	ErrCustomLimitExceeded        = infraerrors.TooManyRequests("CUSTOM_WINDOW_LIMIT_EXCEEDED", "custom window usage limit exceeded")
 	ErrSubscriptionNilInput       = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
 	ErrAdjustWouldExpire          = infraerrors.BadRequest("ADJUST_WOULD_EXPIRE", "adjustment would result in expired subscription (remaining days must be > 0)")
 )
@@ -650,6 +651,10 @@ func (s *SubscriptionService) List(ctx context.Context, page, pageSize int, user
 func normalizeExpiredWindows(subs []UserSubscription) {
 	for i := range subs {
 		sub := &subs[i]
+		if sub.Group != nil && sub.NeedsCustomReset(sub.Group) {
+			sub.CustomWindowStart = nil
+			sub.CustomUsageUSD = 0
+		}
 		// 日窗口过期：清零展示数据
 		if sub.NeedsDailyReset() {
 			sub.DailyWindowStart = nil
@@ -691,9 +696,19 @@ func (s *SubscriptionService) CheckAndActivateWindow(ctx context.Context, sub *U
 		return nil
 	}
 
-	// 使用当天零点作为窗口起始时间
-	windowStart := startOfDay(time.Now())
-	return s.userSubRepo.ActivateWindows(ctx, sub.ID, windowStart)
+	windowStart := time.Now()
+	if sub.Group == nil || !sub.Group.HasCustomLimit() {
+		windowStart = startOfDay(windowStart)
+	}
+	if err := s.userSubRepo.ActivateWindows(ctx, sub.ID, startOfDay(windowStart)); err != nil {
+		return err
+	}
+	if sub.Group != nil && sub.Group.HasCustomLimit() {
+		if err := s.userSubRepo.ResetCustomUsage(ctx, sub.ID, time.Now()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // AdminResetQuota manually resets the daily, weekly, and/or monthly usage windows.
@@ -707,6 +722,7 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 		return nil, err
 	}
 	windowStart := startOfDay(time.Now())
+	customWindowStart := time.Now()
 	if resetDaily {
 		if err := s.userSubRepo.ResetDailyUsage(ctx, sub.ID, windowStart); err != nil {
 			return nil, err
@@ -719,6 +735,11 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 	}
 	if resetMonthly {
 		if err := s.userSubRepo.ResetMonthlyUsage(ctx, sub.ID, windowStart); err != nil {
+			return nil, err
+		}
+	}
+	if sub.Group != nil && sub.Group.HasCustomLimit() {
+		if err := s.userSubRepo.ResetCustomUsage(ctx, sub.ID, customWindowStart); err != nil {
 			return nil, err
 		}
 	}
@@ -740,7 +761,17 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *UserSubscription) error {
 	// 使用当天零点作为新窗口起始时间
 	windowStart := startOfDay(time.Now())
+	customWindowStart := time.Now()
 	needsInvalidateCache := false
+
+	if sub.Group != nil && sub.NeedsCustomReset(sub.Group) {
+		if err := s.userSubRepo.ResetCustomUsage(ctx, sub.ID, customWindowStart); err != nil {
+			return err
+		}
+		sub.CustomWindowStart = &customWindowStart
+		sub.CustomUsageUSD = 0
+		needsInvalidateCache = true
+	}
 
 	// 日窗口重置（24小时）
 	if sub.NeedsDailyReset() {
@@ -795,6 +826,9 @@ func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSub
 	if !sub.CheckMonthlyLimit(group, additionalCost) {
 		return ErrMonthlyLimitExceeded
 	}
+	if !sub.CheckCustomLimit(group, additionalCost) {
+		return ErrCustomLimitExceeded
+	}
 	return nil
 }
 
@@ -827,6 +861,13 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 		sub.MonthlyUsageUSD = 0
 		needsMaintenance = true
 	}
+	if sub.NeedsCustomReset(group) {
+		sub.CustomUsageUSD = 0
+		needsMaintenance = true
+	}
+	if group.HasCustomLimit() && sub.CustomWindowStart == nil {
+		needsMaintenance = true
+	}
 	if !sub.IsWindowActivated() {
 		needsMaintenance = true
 	}
@@ -840,6 +881,9 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 	}
 	if !sub.CheckMonthlyLimit(group, 0) {
 		return needsMaintenance, ErrMonthlyLimitExceeded
+	}
+	if !sub.CheckCustomLimit(group, 0) {
+		return needsMaintenance, ErrCustomLimitExceeded
 	}
 
 	return needsMaintenance, nil
@@ -877,6 +921,11 @@ func (s *SubscriptionService) doWindowMaintenance(sub *UserSubscription) {
 			log.Printf("Failed to activate subscription windows: %v", err)
 		}
 	}
+	if sub.Group != nil && sub.Group.HasCustomLimit() && sub.CustomWindowStart == nil {
+		if err := s.userSubRepo.ResetCustomUsage(ctx, sub.ID, time.Now()); err != nil {
+			log.Printf("Failed to activate custom subscription window: %v", err)
+		}
+	}
 
 	// 重置过期窗口
 	if err := s.CheckAndResetWindows(ctx, sub); err != nil {
@@ -898,6 +947,7 @@ type SubscriptionProgress struct {
 	GroupName     string               `json:"group_name"`
 	ExpiresAt     time.Time            `json:"expires_at"`
 	ExpiresInDays int                  `json:"expires_in_days"`
+	Custom        *UsageWindowProgress `json:"custom,omitempty"`
 	Daily         *UsageWindowProgress `json:"daily,omitempty"`
 	Weekly        *UsageWindowProgress `json:"weekly,omitempty"`
 	Monthly       *UsageWindowProgress `json:"monthly,omitempty"`
@@ -939,6 +989,29 @@ func (s *SubscriptionService) calculateProgress(sub *UserSubscription, group *Gr
 		GroupName:     group.Name,
 		ExpiresAt:     sub.ExpiresAt,
 		ExpiresInDays: sub.DaysRemaining(),
+	}
+
+	if group.HasCustomLimit() && sub.CustomWindowStart != nil {
+		limit := *group.CustomLimitUSD
+		resetsAt := sub.CustomWindowStart.Add(group.CustomWindowDuration())
+		progress.Custom = &UsageWindowProgress{
+			LimitUSD:        limit,
+			UsedUSD:         sub.CustomUsageUSD,
+			RemainingUSD:    limit - sub.CustomUsageUSD,
+			Percentage:      (sub.CustomUsageUSD / limit) * 100,
+			WindowStart:     *sub.CustomWindowStart,
+			ResetsAt:        resetsAt,
+			ResetsInSeconds: int64(time.Until(resetsAt).Seconds()),
+		}
+		if progress.Custom.RemainingUSD < 0 {
+			progress.Custom.RemainingUSD = 0
+		}
+		if progress.Custom.Percentage > 100 {
+			progress.Custom.Percentage = 100
+		}
+		if progress.Custom.ResetsInSeconds < 0 {
+			progress.Custom.ResetsInSeconds = 0
+		}
 	}
 
 	// 日进度

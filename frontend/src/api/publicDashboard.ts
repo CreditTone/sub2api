@@ -2,9 +2,18 @@ import { apiClient } from './client'
 import type { UsageLog } from '@/types'
 import type { UserDashboardStats, TrendParams, TrendResponse, ModelStatsResponse } from './usage'
 
+export interface PublicDashboardRateLimit {
+  window: '5h' | '1d' | '7d'
+  limit: number
+  used: number
+  remaining: number
+  reset_at?: string | null
+}
+
 export interface PublicDashboardStatsResponse {
   api_key_suffix: string
   stats: UserDashboardStats
+  rate_limits?: PublicDashboardRateLimit[]
 }
 
 export interface PublicDashboardTrendResponse extends TrendResponse {

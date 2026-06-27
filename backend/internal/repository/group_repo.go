@@ -50,6 +50,8 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetNillableDailyLimitUsd(groupIn.DailyLimitUSD).
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
+		SetNillableCustomLimitUsd(groupIn.CustomLimitUSD).
+		SetNillableCustomWindowHours(groupIn.CustomWindowHours).
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
@@ -120,6 +122,8 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetNillableDailyLimitUsd(groupIn.DailyLimitUSD).
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
+		SetNillableCustomLimitUsd(groupIn.CustomLimitUSD).
+		SetNillableCustomWindowHours(groupIn.CustomWindowHours).
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
@@ -149,6 +153,16 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.SetMonthlyLimitUsd(*groupIn.MonthlyLimitUSD)
 	} else {
 		builder = builder.ClearMonthlyLimitUsd()
+	}
+	if groupIn.CustomLimitUSD != nil {
+		builder = builder.SetCustomLimitUsd(*groupIn.CustomLimitUSD)
+	} else {
+		builder = builder.ClearCustomLimitUsd()
+	}
+	if groupIn.CustomWindowHours != nil {
+		builder = builder.SetCustomWindowHours(*groupIn.CustomWindowHours)
+	} else {
+		builder = builder.ClearCustomWindowHours()
 	}
 	if groupIn.ImagePrice1K != nil {
 		builder = builder.SetImagePrice1k(*groupIn.ImagePrice1K)

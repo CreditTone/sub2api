@@ -213,6 +213,43 @@
 
           <template #cell-usage="{ row }">
             <div class="min-w-[280px] space-y-2">
+              <!-- 5-hour / Custom Window Usage -->
+              <div v-if="row.group?.custom_limit_usd && row.group?.custom_window_hours" class="usage-row">
+                <div class="flex items-center gap-2">
+                  <span class="usage-label">{{ t('admin.subscriptions.customWindow', { hours: row.group.custom_window_hours }) }}</span>
+                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                    <div
+                      class="h-1.5 rounded-full transition-all"
+                      :class="getProgressClass(row.custom_usage_usd, row.group?.custom_limit_usd)"
+                      :style="{
+                        width: getProgressWidth(row.custom_usage_usd, row.group?.custom_limit_usd)
+                      }"
+                    ></div>
+                  </div>
+                  <span class="usage-amount">
+                    ${{ row.custom_usage_usd?.toFixed(2) || '0.00' }}
+                    <span class="text-gray-400">/</span>
+                    ${{ row.group?.custom_limit_usd?.toFixed(2) }}
+                  </span>
+                </div>
+                <div class="reset-info" v-if="row.custom_window_start">
+                  <svg
+                    class="h-3 w-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span>{{ formatResetTime(row.custom_window_start, row.group.custom_window_hours) }}</span>
+                </div>
+              </div>
+
               <!-- Daily Usage -->
               <div v-if="row.group?.daily_limit_usd" class="usage-row">
                 <div class="flex items-center gap-2">
@@ -327,6 +364,7 @@
               <!-- No Limits - Unlimited badge -->
               <div
                 v-if="
+                  !row.group?.custom_limit_usd &&
                   !row.group?.daily_limit_usd &&
                   !row.group?.weekly_limit_usd &&
                   !row.group?.monthly_limit_usd
@@ -1314,7 +1352,7 @@ const getProgressClass = (used: number | null | undefined, limit: number | null)
 }
 
 // Format reset time based on window start and period type
-const formatResetTime = (windowStart: string, period: 'daily' | 'weekly' | 'monthly'): string => {
+const formatResetTime = (windowStart: string, period: 'daily' | 'weekly' | 'monthly' | number): string => {
   if (!windowStart) return t('admin.subscriptions.windowNotActive')
 
   const start = new Date(windowStart)
@@ -1322,16 +1360,20 @@ const formatResetTime = (windowStart: string, period: 'daily' | 'weekly' | 'mont
 
   // Calculate reset time based on period
   let resetTime: Date
-  switch (period) {
-    case 'daily':
-      resetTime = new Date(start.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'weekly':
-      resetTime = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000)
-      break
-    case 'monthly':
-      resetTime = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000)
-      break
+  if (typeof period === 'number') {
+    resetTime = new Date(start.getTime() + period * 60 * 60 * 1000)
+  } else {
+    switch (period) {
+      case 'daily':
+        resetTime = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+        break
+      case 'weekly':
+        resetTime = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000)
+        break
+      case 'monthly':
+        resetTime = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000)
+        break
+    }
   }
 
   const diffMs = resetTime.getTime() - now.getTime()

@@ -32,6 +32,7 @@ type subscriptionCacheData struct {
 	DailyUsage   float64
 	WeeklyUsage  float64
 	MonthlyUsage float64
+	CustomUsage  float64
 	Version      int64
 }
 
@@ -425,6 +426,7 @@ func (s *BillingCacheService) convertFromPortsData(data *SubscriptionCacheData) 
 		DailyUsage:   data.DailyUsage,
 		WeeklyUsage:  data.WeeklyUsage,
 		MonthlyUsage: data.MonthlyUsage,
+		CustomUsage:  data.CustomUsage,
 		Version:      data.Version,
 	}
 }
@@ -436,6 +438,7 @@ func (s *BillingCacheService) convertToPortsData(data *subscriptionCacheData) *S
 		DailyUsage:   data.DailyUsage,
 		WeeklyUsage:  data.WeeklyUsage,
 		MonthlyUsage: data.MonthlyUsage,
+		CustomUsage:  data.CustomUsage,
 		Version:      data.Version,
 	}
 }
@@ -453,6 +456,7 @@ func (s *BillingCacheService) getSubscriptionFromDB(ctx context.Context, userID,
 		DailyUsage:   sub.DailyUsageUSD,
 		WeeklyUsage:  sub.WeeklyUsageUSD,
 		MonthlyUsage: sub.MonthlyUsageUSD,
+		CustomUsage:  sub.CustomUsageUSD,
 		Version:      sub.UpdatedAt.Unix(),
 	}, nil
 }
@@ -619,13 +623,13 @@ func (s *BillingCacheService) evaluateRateLimits(ctx context.Context, apiKey *AP
 	}
 
 	// Check limits
-	if apiKey.RateLimit5h > 0 && usage5h >= apiKey.RateLimit5h {
+	if limit := apiKey.EffectiveRateLimit5h(); limit > 0 && usage5h >= limit {
 		return ErrAPIKeyRateLimit5hExceeded
 	}
-	if apiKey.RateLimit1d > 0 && usage1d >= apiKey.RateLimit1d {
+	if limit := apiKey.EffectiveRateLimit1d(); limit > 0 && usage1d >= limit {
 		return ErrAPIKeyRateLimit1dExceeded
 	}
-	if apiKey.RateLimit7d > 0 && usage7d >= apiKey.RateLimit7d {
+	if limit := apiKey.EffectiveRateLimit7d(); limit > 0 && usage7d >= limit {
 		return ErrAPIKeyRateLimit7dExceeded
 	}
 	return nil
@@ -660,9 +664,12 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 	}
 
 	// 判断计费模式
-	isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
+	isPerKeySubscriptionMode := apiKey != nil && apiKey.UsesPerKeySubscriptionLimits()
+	isSubscriptionMode := !isPerKeySubscriptionMode && group != nil && group.IsSubscriptionType() && subscription != nil
 
-	if isSubscriptionMode {
+	if isPerKeySubscriptionMode {
+		// Admin-owned subscription keys use key-scoped windows only.
+	} else if isSubscriptionMode {
 		if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
 			return err
 		}
@@ -673,7 +680,7 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 	}
 
 	// Check API Key rate limits (applies to both billing modes)
-	if apiKey != nil && apiKey.HasRateLimits() {
+	if apiKey != nil && apiKey.HasEffectiveRateLimits() {
 		if err := s.checkAPIKeyRateLimits(ctx, apiKey); err != nil {
 			return err
 		}
@@ -828,6 +835,9 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 
 	if group.HasMonthlyLimit() && subData.MonthlyUsage >= *group.MonthlyLimitUSD {
 		return ErrMonthlyLimitExceeded
+	}
+	if group.HasCustomLimit() && subData.CustomUsage >= *group.CustomLimitUSD {
+		return ErrCustomLimitExceeded
 	}
 
 	return nil

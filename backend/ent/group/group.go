@@ -42,6 +42,10 @@ const (
 	FieldWeeklyLimitUsd = "weekly_limit_usd"
 	// FieldMonthlyLimitUsd holds the string denoting the monthly_limit_usd field in the database.
 	FieldMonthlyLimitUsd = "monthly_limit_usd"
+	// FieldCustomLimitUsd holds the string denoting the custom_limit_usd field in the database.
+	FieldCustomLimitUsd = "custom_limit_usd"
+	// FieldCustomWindowHours holds the string denoting the custom_window_hours field in the database.
+	FieldCustomWindowHours = "custom_window_hours"
 	// FieldDefaultValidityDays holds the string denoting the default_validity_days field in the database.
 	FieldDefaultValidityDays = "default_validity_days"
 	// FieldImagePrice1k holds the string denoting the image_price_1k field in the database.
@@ -166,6 +170,8 @@ var Columns = []string{
 	FieldDailyLimitUsd,
 	FieldWeeklyLimitUsd,
 	FieldMonthlyLimitUsd,
+	FieldCustomLimitUsd,
+	FieldCustomWindowHours,
 	FieldDefaultValidityDays,
 	FieldImagePrice1k,
 	FieldImagePrice2k,
@@ -336,6 +342,16 @@ func ByWeeklyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
 // ByMonthlyLimitUsd orders the results by the monthly_limit_usd field.
 func ByMonthlyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMonthlyLimitUsd, opts...).ToFunc()
+}
+
+// ByCustomLimitUsd orders the results by the custom_limit_usd field.
+func ByCustomLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCustomLimitUsd, opts...).ToFunc()
+}
+
+// ByCustomWindowHours orders the results by the custom_window_hours field.
+func ByCustomWindowHours(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCustomWindowHours, opts...).ToFunc()
 }
 
 // ByDefaultValidityDays orders the results by the default_validity_days field.

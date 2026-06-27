@@ -14,10 +14,12 @@ type UserSubscription struct {
 	DailyWindowStart   *time.Time
 	WeeklyWindowStart  *time.Time
 	MonthlyWindowStart *time.Time
+	CustomWindowStart  *time.Time
 
 	DailyUsageUSD   float64
 	WeeklyUsageUSD  float64
 	MonthlyUsageUSD float64
+	CustomUsageUSD  float64
 
 	AssignedBy *int64
 	AssignedAt time.Time
@@ -47,7 +49,7 @@ func (s *UserSubscription) DaysRemaining() int {
 }
 
 func (s *UserSubscription) IsWindowActivated() bool {
-	return s.DailyWindowStart != nil || s.WeeklyWindowStart != nil || s.MonthlyWindowStart != nil
+	return s.DailyWindowStart != nil || s.WeeklyWindowStart != nil || s.MonthlyWindowStart != nil || s.CustomWindowStart != nil
 }
 
 func (s *UserSubscription) NeedsDailyReset() bool {
@@ -95,6 +97,29 @@ func (s *UserSubscription) MonthlyResetTime() *time.Time {
 	return &t
 }
 
+func (s *UserSubscription) NeedsCustomReset(group *Group) bool {
+	if s.CustomWindowStart == nil || group == nil {
+		return false
+	}
+	d := group.CustomWindowDuration()
+	if d <= 0 {
+		return false
+	}
+	return time.Since(*s.CustomWindowStart) >= d
+}
+
+func (s *UserSubscription) CustomResetTime(group *Group) *time.Time {
+	if s.CustomWindowStart == nil || group == nil {
+		return nil
+	}
+	d := group.CustomWindowDuration()
+	if d <= 0 {
+		return nil
+	}
+	t := s.CustomWindowStart.Add(d)
+	return &t
+}
+
 func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64) bool {
 	if !group.HasDailyLimit() {
 		return true
@@ -116,9 +141,17 @@ func (s *UserSubscription) CheckMonthlyLimit(group *Group, additionalCost float6
 	return s.MonthlyUsageUSD+additionalCost <= *group.MonthlyLimitUSD
 }
 
-func (s *UserSubscription) CheckAllLimits(group *Group, additionalCost float64) (daily, weekly, monthly bool) {
+func (s *UserSubscription) CheckCustomLimit(group *Group, additionalCost float64) bool {
+	if !group.HasCustomLimit() {
+		return true
+	}
+	return s.CustomUsageUSD+additionalCost <= *group.CustomLimitUSD
+}
+
+func (s *UserSubscription) CheckAllLimits(group *Group, additionalCost float64) (daily, weekly, monthly, custom bool) {
 	daily = s.CheckDailyLimit(group, additionalCost)
 	weekly = s.CheckWeeklyLimit(group, additionalCost)
 	monthly = s.CheckMonthlyLimit(group, additionalCost)
+	custom = s.CheckCustomLimit(group, additionalCost)
 	return
 }

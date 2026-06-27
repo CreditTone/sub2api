@@ -94,6 +94,53 @@
               }}</span>
             </div>
 
+            <!-- 5-hour / Custom Window Usage -->
+            <div
+              v-if="subscription.group?.custom_limit_usd && subscription.group?.custom_window_hours"
+              class="space-y-2"
+            >
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('userSubscriptions.customWindow', { hours: subscription.group.custom_window_hours }) }}
+                </span>
+                <span class="text-sm text-gray-500 dark:text-dark-400">
+                  ${{ (subscription.custom_usage_usd || 0).toFixed(2) }} / ${{
+                    subscription.group.custom_limit_usd.toFixed(2)
+                  }}
+                </span>
+              </div>
+              <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                <div
+                  class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+                  :class="
+                    getProgressBarClass(
+                      subscription.custom_usage_usd,
+                      subscription.group.custom_limit_usd
+                    )
+                  "
+                  :style="{
+                    width: getProgressWidth(
+                      subscription.custom_usage_usd,
+                      subscription.group.custom_limit_usd
+                    )
+                  }"
+                ></div>
+              </div>
+              <p
+                v-if="subscription.custom_window_start"
+                class="text-xs text-gray-500 dark:text-dark-400"
+              >
+                {{
+                  t('userSubscriptions.resetIn', {
+                    time: formatResetTime(
+                      subscription.custom_window_start,
+                      subscription.group.custom_window_hours
+                    )
+                  })
+                }}
+              </p>
+            </div>
+
             <!-- Daily Usage -->
             <div v-if="subscription.group?.daily_limit_usd" class="space-y-2">
               <div class="flex items-center justify-between">
@@ -220,6 +267,7 @@
             <!-- No limits configured - Unlimited badge -->
             <div
               v-if="
+                !subscription.group?.custom_limit_usd &&
                 !subscription.group?.daily_limit_usd &&
                 !subscription.group?.weekly_limit_usd &&
                 !subscription.group?.monthly_limit_usd

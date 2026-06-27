@@ -5028,9 +5028,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	// Determine billing type
-	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+	isPerKeySubscriptionBilling := apiKey != nil && apiKey.UsesPerKeySubscriptionLimits()
+	isSubscriptionBilling := !isPerKeySubscriptionBilling && subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 	billingType := BillingTypeBalance
-	if isSubscriptionBilling {
+	if isSubscriptionBilling || isPerKeySubscriptionBilling {
 		billingType = BillingTypeSubscription
 	}
 
@@ -5130,15 +5131,16 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	billingErr := func() error {
 		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-			Cost:                  cost,
-			User:                  user,
-			APIKey:                apiKey,
-			Account:               account,
-			Subscription:          subscription,
-			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-			IsSubscriptionBill:    isSubscriptionBilling,
-			AccountRateMultiplier: accountRateMultiplier,
-			APIKeyService:         input.APIKeyService,
+			Cost:                     cost,
+			User:                     user,
+			APIKey:                   apiKey,
+			Account:                  account,
+			Subscription:             subscription,
+			RequestPayloadHash:       resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+			IsSubscriptionBill:       isSubscriptionBilling,
+			IsPerKeySubscriptionBill: isPerKeySubscriptionBilling,
+			AccountRateMultiplier:    accountRateMultiplier,
+			APIKeyService:            input.APIKeyService,
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err
 	}()

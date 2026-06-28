@@ -87,7 +87,7 @@
               <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
                 恢复倒计时：
                 <span class="font-medium text-gray-700 dark:text-gray-300">
-                  {{ formatResetTime(item.reset_at) || '等待首次消耗后开始' }}
+                  {{ formatResetTime(item.reset_at) || '--' }}
                 </span>
               </p>
             </div>
@@ -99,6 +99,7 @@
             :loading="loadingCharts"
             :trend="trendData"
             :models="modelStats"
+            :show-standard-cost="false"
             @dateRangeChange="loadCharts"
             @granularityChange="loadCharts"
             @refresh="refreshAll"

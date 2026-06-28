@@ -420,9 +420,7 @@ func (h *UsageHandler) buildPublicDashboardRateLimits(c *gin.Context, apiKeyID i
 			"used":      used,
 			"remaining": max(0, limit-used),
 		}
-		if rateLimitData.Window5hStart != nil && !service.IsWindowExpired(rateLimitData.Window5hStart, service.RateLimitWindow5h) {
-			entry["reset_at"] = rateLimitData.Window5hStart.Add(service.RateLimitWindow5h)
-		}
+		entry["reset_at"] = publicDashboardResetAt(rateLimitData.Window5hStart, service.RateLimitWindow5h, time.Now())
 		rateLimits = append(rateLimits, entry)
 	}
 	if limit := apiKey.EffectiveRateLimit1d(); limit > 0 {
@@ -433,9 +431,7 @@ func (h *UsageHandler) buildPublicDashboardRateLimits(c *gin.Context, apiKeyID i
 			"used":      used,
 			"remaining": max(0, limit-used),
 		}
-		if rateLimitData.Window1dStart != nil && !service.IsWindowExpired(rateLimitData.Window1dStart, service.RateLimitWindow1d) {
-			entry["reset_at"] = rateLimitData.Window1dStart.Add(service.RateLimitWindow1d)
-		}
+		entry["reset_at"] = publicDashboardResetAt(rateLimitData.Window1dStart, service.RateLimitWindow1d, time.Now())
 		rateLimits = append(rateLimits, entry)
 	}
 	if limit := apiKey.EffectiveRateLimit7d(); limit > 0 {
@@ -446,13 +442,37 @@ func (h *UsageHandler) buildPublicDashboardRateLimits(c *gin.Context, apiKeyID i
 			"used":      used,
 			"remaining": max(0, limit-used),
 		}
-		if rateLimitData.Window7dStart != nil && !service.IsWindowExpired(rateLimitData.Window7dStart, service.RateLimitWindow7d) {
-			entry["reset_at"] = rateLimitData.Window7dStart.Add(service.RateLimitWindow7d)
-		}
+		entry["reset_at"] = publicDashboardResetAt(rateLimitData.Window7dStart, service.RateLimitWindow7d, time.Now())
 		rateLimits = append(rateLimits, entry)
 	}
 
 	return rateLimits
+}
+
+func publicDashboardResetAt(windowStart *time.Time, duration time.Duration, now time.Time) time.Time {
+	if windowStart != nil && !service.IsWindowExpired(windowStart, duration) {
+		return windowStart.Add(duration)
+	}
+
+	switch duration {
+	case service.RateLimitWindow5h:
+		dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		elapsed := now.Sub(dayStart)
+		windowsElapsed := int(elapsed / duration)
+		resetAt := dayStart.Add(time.Duration(windowsElapsed+1) * duration)
+		if !resetAt.After(now) {
+			resetAt = resetAt.Add(duration)
+		}
+		return resetAt
+	case service.RateLimitWindow1d:
+		return time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+	case service.RateLimitWindow7d:
+		weekdayOffset := (int(now.Weekday()) + 6) % 7
+		weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekdayOffset, 0, 0, 0, 0, now.Location())
+		return weekStart.Add(7 * 24 * time.Hour)
+	default:
+		return now.Add(duration)
+	}
 }
 
 // PublicDashboardTrend handles getting anonymous per-user usage trend by API key suffix.
